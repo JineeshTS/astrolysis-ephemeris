@@ -1,0 +1,22 @@
+{
+  "name": "@astrolysis/ephemeris-service",
+  "version": "0.0.0",
+  "description": "AGPL sidecar exposing Swiss Ephemeris calculations over localhost HTTP. See docs/ADR/0004.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "private": false,
+  "dependencies": {
+    "@astrolysis/ephemeris-core": "workspace:*",
+    "fastify": "^4.28.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^20.16.10",
+    "tsx": "^4.19.0"
+  }
+}

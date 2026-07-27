@@ -1,0 +1,51 @@
+@astrolysis/ephemeris-core
+==========================
+
+Copyright (C) 2026 Astrolysis
+
+This package is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See LICENSE.
+
+Corresponding Source for the version running in any Astrolysis deployment is
+available at the URL reported by the ephemeris service's GET /source endpoint.
+
+
+Third-party components
+----------------------
+
+Swiss Ephemeris
+  Copyright (C) Astrodienst AG, Zurich, Switzerland.
+  https://www.astro.com/swisseph/
+
+  The Swiss Ephemeris is made available by Astrodienst AG under a dual licence:
+  the GNU Affero General Public License, or a paid professional licence.
+  Astrolysis uses it under the **AGPL**, which is why this package and
+  services/ephemeris are AGPL-licensed and their source is published.
+
+  Astrodienst's own request, which we honour here: the Swiss Ephemeris is
+  credited in the software and its documentation.
+
+  Accessed through the `sweph` Node bindings by Timotej Roiko
+  (https://github.com/timotejroiko/sweph), also AGPL-3.0-or-later in the absence
+  of a professional licence.
+
+Planetary and lunar theory
+  The Swiss Ephemeris incorporates work derived from the JPL DE ephemerides
+  (Jet Propulsion Laboratory, NASA) and, for its analytic fallback, the
+  ephemeris routines of Steve Moshier.
+
+
+Why this package is separate
+----------------------------
+
+See docs/ADR/0004 in the Astrolysis repository. In short: the AGPL does not
+permit closed-source software to link this library and serve it over a network.
+Rather than relicense the whole of Astrolysis, the ephemeris calculations are
+isolated in this package and the sidecar service that wraps it, both AGPL and
+both published. The remainder of Astrolysis communicates with that service over
+a network interface and is a separate work.
+
+Nothing proprietary belongs in this package. If you are adding knowledge-base
+content, prompts, or generation logic here, you are in the wrong package.

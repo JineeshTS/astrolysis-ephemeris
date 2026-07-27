@@ -1,0 +1,12 @@
+{
+  "name": "astrolysis-ephemeris",
+  "version": "0.0.0",
+  "private": false,
+  "license": "AGPL-3.0-or-later",
+  "description": "AGPL Corresponding Source for the Astrolysis ephemeris service",
+  "workspaces": ["packages/*", "services/*"],
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  }
+}
