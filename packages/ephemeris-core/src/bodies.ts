@@ -6,7 +6,8 @@
  * intentionally omit asteroids by default; admin can turn them on per-user.
  */
 import type { Planet, PlanetPosition } from './types';
-import { BODY_INDEX, FLAG_GEO, FLAG_SIDEREAL, FLAG_SPEED, getSweph } from './sweph';
+import { BODY_INDEX, FLAG_GEO, FLAG_SPEED, getSweph, recordEphemerisSource } from './sweph';
+import { TROPICAL, enterFrame, type Frame } from './frame';
 import { houseOf } from './houses';
 import { nakshatraIndex, nakshatraPada, norm360, signDegOf, signOf } from './zodiac';
 import type { HouseCusp } from './types';
@@ -49,8 +50,19 @@ export const VEDIC_GRAHAS: Planet[] = [
 
 export interface ComputeBodiesOptions {
   bodies?: Planet[];
-  cusps?: HouseCusp[];     // present → assign `house` field; absent → null
-  sidereal?: boolean;      // adds SEFLG_SIDEREAL — caller must set ayanamsa first
+  /**
+   * Cusps to assign houses against. They MUST be in the same frame as the
+   * bodies — computeSky (sky.ts) is the one caller that guarantees it. The RPC
+   * surface does not accept caller-supplied cusps at all.
+   */
+  cusps?: HouseCusp[];
+  /** Tropical unless given. There is no implicit sidereal default. */
+  frame?: Frame;
+  /**
+   * When true (default), bodies whose ephemeris is unavailable are skipped and
+   * REPORTED in `missing`. When false, the first unavailable body throws.
+   */
+  skipUnavailable?: boolean;
 }
 
 /**
@@ -65,8 +77,8 @@ export interface ComputeBodiesOptions {
  */
 function unwrapCalc(result: any, body: string): number[] {
   // sweph signals a hard failure with flag < 0 AND populates `error`.
-  // A non-empty `error` with flag >= 0 is just a "using Moshier fallback"
-  // warning — that's fine for major planets.
+  // A non-empty `error` with flag >= 0 is a fallback warning (e.g. Moshier);
+  // which ephemeris was actually used is recorded from the returned flag.
   if (typeof result?.flag === 'number' && result.flag < 0) {
     throw new BodyComputeError(
       body,
@@ -83,6 +95,7 @@ function unwrapCalc(result: any, body: string): number[] {
   if (!arr || arr.length < 4) {
     throw new BodyComputeError(body, 'sweph returned no position data');
   }
+  if (typeof result?.flag === 'number') recordEphemerisSource(result.flag);
   return arr;
 }
 
@@ -93,49 +106,59 @@ export class BodyComputeError extends Error {
   }
 }
 
-export interface ComputeBodiesOptionsExtended extends ComputeBodiesOptions {
-  /**
-   * When true (default), bodies whose ephemeris is unavailable are silently
-   * skipped — the chart returns whichever bodies sweph could compute. When
-   * false, the first unavailable body throws. Use `false` in tests.
-   */
-  skipUnavailable?: boolean;
+export interface BodiesReport {
+  bodies: PlanetPosition[];
+  /** Requested bodies that could not be computed, and why. Never silently dropped. */
+  missing: Array<{ body: Planet; reason: string }>;
 }
 
-export function computeBodies(
-  jdUt: number,
-  opts: ComputeBodiesOptionsExtended = {},
-): PlanetPosition[] {
+export function computeBodiesReport(jdUt: number, opts: ComputeBodiesOptions = {}): BodiesReport {
+  if ((opts as { sidereal?: unknown }).sidereal !== undefined) {
+    // The old boolean meant "whatever ayanamsa the service was last set to".
+    throw new Error('computeBodies: `sidereal` was removed — pass an explicit `frame`');
+  }
   const sw = getSweph();
   const bodies = opts.bodies ?? DEFAULT_BODIES;
-  const flags = FLAG_GEO | FLAG_SPEED | (opts.sidereal ? FLAG_SIDEREAL : 0);
+  const frame = opts.frame ?? TROPICAL;
+  const sidereal = frame.zodiac === 'sidereal';
   const skipUnavailable = opts.skipUnavailable ?? true;
+  // Selected once, synchronously, immediately before every calculation below.
+  const flags = FLAG_GEO | FLAG_SPEED | enterFrame(frame);
 
   const out: PlanetPosition[] = [];
+  const missing: BodiesReport['missing'] = [];
+  const position = (body: Planet, longitude: number, latitude: number, speed: number): PlanetPosition => {
+    const pos: PlanetPosition = {
+      body,
+      longitude,
+      latitude,
+      speed,
+      retrograde: speed < 0,
+      sign: signOf(longitude),
+      signDeg: signDegOf(longitude),
+      house: opts.cusps ? houseOf(longitude, opts.cusps) : null,
+    };
+    if (sidereal) {
+      pos.nakshatra = nakshatraIndex(longitude);
+      pos.nakshatraPada = nakshatraPada(longitude);
+    }
+    return pos;
+  };
+
   for (const body of bodies) {
     try {
-      // Ketu = Rahu + 180°. Computed from mean_node since sweph has no
-      // ketu index. The same error-unwrap rules apply.
       if (body === 'ketu') {
+        /*
+         * Ketu = Rāhu + 180°, derived from the mean node since sweph has no
+         * Ketu index. A constant 180° offset does not change the rate of
+         * change, so Ketu's longitudinal speed IS Rāhu's. This used to negate
+         * it, which reported the two nodes moving in opposite directions and
+         * marked Ketu direct whenever Rāhu was retrograde — i.e. almost always
+         * for the mean node. The node model itself is unchanged.
+         */
         const rahuIdx = BODY_INDEX.mean_node!;
         const arr = unwrapCalc(sw.calc_ut(jdUt, rahuIdx, flags), 'ketu(rahu)');
-        const longitude = norm360((arr[0] ?? 0) + 180);
-        const speed = -(arr[3] ?? 0);
-        const pos: PlanetPosition = {
-          body,
-          longitude,
-          latitude: 0,
-          speed,
-          retrograde: speed < 0,
-          sign: signOf(longitude),
-          signDeg: signDegOf(longitude),
-          house: opts.cusps ? houseOf(longitude, opts.cusps) : null,
-        };
-        if (opts.sidereal) {
-          pos.nakshatra = nakshatraIndex(longitude);
-          pos.nakshatraPada = nakshatraPada(longitude);
-        }
-        out.push(pos);
+        out.push(position(body, norm360((arr[0] ?? 0) + 180), 0, arr[3] ?? 0));
         continue;
       }
 
@@ -144,35 +167,19 @@ export function computeBodies(
         throw new BodyComputeError(body, 'no sweph body index');
       }
       const arr = unwrapCalc(sw.calc_ut(jdUt, idx, flags), body);
-      const longitude = norm360(arr[0] ?? 0);
-      const latitude = arr[1] ?? 0;
-      const speed = arr[3] ?? 0;
-      const pos: PlanetPosition = {
-        body,
-        longitude,
-        latitude,
-        speed,
-        retrograde: speed < 0,
-        sign: signOf(longitude),
-        signDeg: signDegOf(longitude),
-        house: opts.cusps ? houseOf(longitude, opts.cusps) : null,
-      };
-      if (opts.sidereal) {
-        pos.nakshatra = nakshatraIndex(longitude);
-        pos.nakshatraPada = nakshatraPada(longitude);
-      }
-      out.push(pos);
+      out.push(position(body, norm360(arr[0] ?? 0), arr[1] ?? 0, arr[3] ?? 0));
     } catch (err) {
       if (err instanceof BodyComputeError && skipUnavailable) {
-        // Best-effort: skip bodies whose ephemeris isn't on disk.
-        // The chart consumer (compute.ts → ChartPayload) sees the reduced
-        // body list and can render accordingly. We log via console so the
-        // operator notices in production logs without crashing the request.
-        console.warn('[bodies]', err.message);
+        missing.push({ body, reason: err.reason });
         continue;
       }
       throw err;
     }
   }
-  return out;
+  return { bodies: out, missing };
+}
+
+/** Positions only — the shape older callers expect. Missing bodies are skipped per `skipUnavailable`. */
+export function computeBodies(jdUt: number, opts: ComputeBodiesOptions = {}): PlanetPosition[] {
+  return computeBodiesReport(jdUt, opts).bodies;
 }

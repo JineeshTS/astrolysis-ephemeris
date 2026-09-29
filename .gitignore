@@ -1,4 +1,4 @@
 node_modules/
+.tsbuildinfo
 dist/
-*.log
-ephe/*.se1
+*.se1

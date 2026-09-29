@@ -1,79 +1,57 @@
 # Astrolysis ephemeris service
 
-Swiss Ephemeris calculations for [Astrolysis](https://astrolysis.com), as a standalone service.
+The numerical service behind Astrolysis charts: Swiss Ephemeris calculations over a narrow HTTP interface on the loopback address. It is free software under the GNU Affero General Public License, version 3 or later (`LICENSE`). See `NOTICE` for attribution.
 
-**Licence: AGPL-3.0-or-later.** This repository is the Corresponding Source offered under AGPL §13 by
-the ephemeris service running in Astrolysis deployments. The running instance reports the exact
-commit at its `GET /source` endpoint.
+This repository is the Corresponding Source of that service. It holds two workspaces:
 
-## Why this is a separate repository
+- `packages/ephemeris-core`: the calculations, through the `sweph` Node bindings to the Swiss Ephemeris;
+- `services/ephemeris`: the HTTP service that exposes them (`GET /health`, `GET /source`, `POST /call`).
 
-The [`sweph`](https://github.com/timotejroiko/sweph) bindings for the Swiss Ephemeris are dual-licensed
-by Astrodienst AG: AGPL-3.0, or a paid professional licence. Astrolysis uses them under the **AGPL**.
+Nothing else of Astrolysis is here, and nothing here depends on it.
 
-The AGPL does not permit closed-source software to link the library and serve it over a network. So
-rather than relicense an entire commercial product, the ephemeris calculations are isolated in a
-separate program — this one — which is AGPL and whose source is published here. Astrolysis
-communicates with it over a network interface and is a separate work.
+## Build and test
 
-Everything in this repository is deliberately confined to ephemeris arithmetic. There is no
-knowledge-base content, no prompts, no generation logic and no business rules, and none should be
-added.
-
-## Layout
-
-```
-packages/ephemeris-core   the Swiss Ephemeris boundary
-  src/sweph.ts            lazy binding load, flags, ayanamsa selection
-  src/bodies.ts           planet positions; Ketu derived as Rahu + 180 deg
-  src/houses.ts           house cusps, ascendant, midheaven
-  src/ephemeris-events.ts solar-longitude crossing solver (solar terms, Lichun)
-  src/zodiac.ts           sign / nakshatra arithmetic
-  src/types.ts            vendored structural types, so this tree is self-contained
-services/ephemeris        fastify RPC wrapper, loopback only
-```
-
-`ephemeris-core` depends on nothing but `sweph`. That is intentional: an AGPL package must not need a
-proprietary one in order to build, or the Corresponding Source would be incomplete.
-
-## Running it
+Tools: Node.js >=20.9.0 (the service is released on Node.js 22) and pnpm@9.0.0.
 
 ```sh
-pnpm install
-# Optional but recommended: Swiss Ephemeris data files. Without them sweph falls
-# back to the Moshier analytic theory and Chiron fails outright, since no
-# analytic theory exists for asteroids.
-mkdir -p ephe && cd ephe
-for f in sepl_18.se1 semo_18.se1 seas_18.se1; do
-  curl -sSL -o "$f" "https://raw.githubusercontent.com/aloistr/swisseph/master/ephe/$f"
-done
-cd ..
-SWEPH_PATH="$PWD/ephe" pnpm --filter @astrolysis/ephemeris-service start
+pnpm install --frozen-lockfile
+pnpm typecheck
+REQUIRE_NATIVE_EPHEMERIS=1 pnpm test
 ```
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /health` | engine version + available ayanāṁśas |
-| `GET /source` | the AGPL §13 offer of Corresponding Source |
-| `POST /call` | `{ fn, args }` against a whitelist of ephemeris functions |
+- `pnpm-lock.yaml` pins every dependency with its registry integrity.
+- The native module is `sweph@2.10.3-5`. Its npm package ships prebuilt Node-API binaries (`prebuilds/<platform>-<arch>/sweph.node`, loaded by `node-gyp-build`) and the C source they are built from, so it can be rebuilt with `node-gyp rebuild`.
+- `REQUIRE_NATIVE_EPHEMERIS=1` turns a native module that cannot load into a test failure instead of a skip.
+
+## Swiss Ephemeris data files
+
+The data files are Astrodienst's. They are not in this repository and are not redistributed with it. Fetch them into a directory of your choice and point `SWEPH_PATH` at it.
+
+The release uses exactly these files. The URLs point into the `ephe/` directory of Astrodienst's Swiss Ephemeris repository, fixed to commit `9083a12d59e98034fb2337061481ac8800c16e64`:
+
+| File | Bytes | SHA-256 | URL |
+|---|---|---|---|
+| `seas_18.se1` | 223004 | `a2cd8fc33807c78ca9a700c91c2e042258b12fc4796519e00781440b5ad8b2e2` | https://raw.githubusercontent.com/aloistr/swisseph/9083a12d59e98034fb2337061481ac8800c16e64/ephe/seas_18.se1 |
+| `semo_18.se1` | 1304771 | `1ca07bd67c24374d77226180c20a4f9996cba013697894810518e7eb582ca4f7` | https://raw.githubusercontent.com/aloistr/swisseph/9083a12d59e98034fb2337061481ac8800c16e64/ephe/semo_18.se1 |
+| `sepl_18.se1` | 484061 | `ca1393ceab3a44fbc895887cf789c68819ae6a1cbc9b22225872dbe4ccd99a66` | https://raw.githubusercontent.com/aloistr/swisseph/9083a12d59e98034fb2337061481ac8800c16e64/ephe/sepl_18.se1 |
+
+Check each file before use:
+
+- its size is exactly the bytes in the table;
+- it begins with the ASCII bytes `SWISSEPH`;
+- its SHA-256 is exactly the one in the table.
+
+A file that fails a check is not a substitute: do not use it. Without the files, planets fall back to the Moshier analytic theory, and asteroids such as Chiron fail. `GET /health` then no longer reports `"ephemeris": "swiss"`.
+
+## Run
 
 ```sh
-curl -s localhost:4100/call -H 'content-type: application/json' \
-  -d '{"fn":"computeBodies","args":{"jdUt":2451544.5,"opts":{"bodies":["sun","chiron"]}}}'
+SWEPH_PATH=/path/to/ephe EPHEMERIS_PORT=4100 pnpm start
 ```
 
-Bind loopback only. It is an internal calculation service with no authentication.
+- It listens on 127.0.0.1 only; `EPHEMERIS_HOST` defaults to 127.0.0.1.
+- `GET /health` reports the engine identity: for this source, engine version `sweph-2.10.03+astrolysis-3` and RPC protocol `2`, plus the linked Swiss Ephemeris version and which ephemeris actually answers.
 
-## Measured behaviour
+## Corresponding Source offer
 
-Moshier vs Swiss Ephemeris, 4 epochs × 11 bodies: largest disagreement **1.903 arcsec** (Neptune,
-2100) — about 1/6307 of a Vedic nakshatra pada. The data files are worth installing for **Chiron** and
-for speed, not for accuracy.
-
-## Credits
-
-Ephemeris calculations by the **Swiss Ephemeris**, Copyright © Astrodienst AG, Zurich —
-<https://www.astro.com/swisseph/>. Used under the GNU Affero General Public License. See `NOTICE`.
-
-Node bindings: `sweph` by Timotej Roiko. Planetary and lunar theory derives from the JPL DE
-ephemerides (NASA/JPL) and, for the analytic fallback, the work of Steve Moshier.
+`GET /source` reports this repository (`EPHEMERIS_SOURCE_URL`) and the exact commit a deployment runs (`EPHEMERIS_SOURCE_COMMIT`). The commit is configured when a deployment is made, after this source is published. It is never written into the source itself.

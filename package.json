@@ -1,12 +1,25 @@
 {
   "name": "astrolysis-ephemeris",
   "version": "0.0.0",
-  "private": false,
+  "private": true,
+  "description": "Astrolysis ephemeris service: Swiss Ephemeris calculations over a narrow loopback HTTP interface. AGPL-3.0-or-later.",
   "license": "AGPL-3.0-or-later",
-  "description": "AGPL Corresponding Source for the Astrolysis ephemeris service",
-  "workspaces": ["packages/*", "services/*"],
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20.9.0",
+    "pnpm": ">=9.0.0"
+  },
   "scripts": {
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "start": "pnpm --filter @astrolysis/ephemeris-service start"
+  },
+  "pnpm": {
+    "overrides": {
+      "fast-uri@3": "^3.1.6",
+      "find-my-way@9": "^9.7.0",
+      "nanoid@3": "^3.3.18",
+      "postcss@8": "^8.5.23"
+    }
   }
 }

@@ -12,7 +12,7 @@
  * The Da Yun (luck-pillar) start age also needs this, since it is measured as
  * the distance from birth to the adjacent solar term.
  */
-import { BODY_INDEX, FLAG_SPEED, getSweph } from './sweph';
+import { BODY_INDEX, FLAG_GEO, FLAG_SPEED, getSweph, recordEphemerisSource } from './sweph';
 
 /** Mean solar motion, degrees per day. Used only to seed the bracket search. */
 const MEAN_SUN_DEG_PER_DAY = 360 / 365.2422;
@@ -49,14 +49,17 @@ function angleDelta(a: number, b: number): number {
  *
  * Note this is tropical: no sidereal flag. The solar terms are tropical by
  * construction, so this must never inherit whatever ayanāṁśa a Vedic chart
- * happened to set.
+ * happened to set — without SEFLG_SIDEREAL the native sidereal mode is not
+ * consulted at all. SEFLG_SWIEPH is requested explicitly (it is also sweph's
+ * default) so the returned flag can report whether Swiss data was used.
  */
 export function sunApparentLongitude(jdUt: number): number {
   const sw = getSweph();
-  const res = sw.calc_ut(jdUt, BODY_INDEX.sun!, FLAG_SPEED);
+  const res = sw.calc_ut(jdUt, BODY_INDEX.sun!, FLAG_GEO | FLAG_SPEED);
   if (typeof res?.flag === 'number' && res.flag < 0) {
     throw new Error(`sunApparentLongitude: sweph failed at jd=${jdUt} — ${res.error ?? res.flag}`);
   }
+  if (typeof res?.flag === 'number') recordEphemerisSource(res.flag);
   const arr: number[] | undefined = Array.isArray(res?.data)
     ? res.data
     : Array.isArray(res?.xx)
@@ -106,7 +109,7 @@ export function solarLongitudeCrossing(
 
   // Seed: jump straight to where mean motion says the target should be.
   const seedDelta = angleDelta(target, sunApparentLongitude(seedJdUt));
-  let guess = seedJdUt + seedDelta / MEAN_SUN_DEG_PER_DAY;
+  const guess = seedJdUt + seedDelta / MEAN_SUN_DEG_PER_DAY;
 
   // Bracket: step outward until angleDelta changes sign. The seed is accurate
   // to within a couple of days (the equation of time), so this rarely runs

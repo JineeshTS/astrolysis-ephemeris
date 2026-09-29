@@ -14,10 +14,18 @@
  */
 import type { Planet } from './types';
 
-// Part of the chart-cache key. Bump on any change that alters computed output,
-// or cached charts keep serving the old values. `-2` = the Bazi day-pillar
-// anchor and noon-boundary corrections (see bazi.ts sexagenaryDay).
-export const ENGINE_VERSION = 'sweph-2.10.03+astrolysis-2';
+/*
+ * Part of every chart snapshot's identity (the API binds it into
+ * `chart_snapshots.engine_version` from each response's `meta`). Bump on any
+ * change that alters computed output.
+ *
+ *   -2  Bazi day-pillar anchor and noon-boundary corrections.
+ *   -3  Explicit per-request coordinate frame (no global ayanamsa RPC);
+ *       sidereal houses/angles via houses_ex(SEFLG_SIDEREAL) instead of tropical
+ *       cusps paired with sidereal bodies; Ketu keeps Rāhu's speed instead of
+ *       its negation; ephemeris source and skipped bodies reported per call.
+ */
+export const ENGINE_VERSION = 'sweph-2.10.03+astrolysis-3';
 
 let _sweph: any | null = null;
 
@@ -85,10 +93,19 @@ export const BODY_INDEX: Partial<Record<Planet, number>> = {
 export const FLAG_GEO = 2; // SEFLG_SWIEPH
 export const FLAG_SIDEREAL = 64 * 1024; // SEFLG_SIDEREAL
 export const FLAG_SPEED = 256; // SEFLG_SPEED
+export const FLAG_JPLEPH = 1; // SEFLG_JPLEPH
+export const FLAG_MOSEPH = 4; // SEFLG_MOSEPH
 
 /**
- * Set the ayanamsa for sidereal calcs. Call once before computing a Vedic chart.
- * Lahiri = 1, Raman = 3, Krishnamurti = 5 (per swe_set_sid_mode).
+ * swe_set_sid_mode indices for the ayanamsas the product supports (sweph
+ * constants SE_SIDM_*). Anything not in this table is rejected, never mapped
+ * to a default.
+ *
+ * There is deliberately no exported "set the ayanamsa" function any more. The
+ * sidereal mode is PROCESS-GLOBAL native state; the old `setAyanamsa` RPC set it
+ * in one request and a later request read positions under whatever mode the
+ * last caller had left. Frames are now passed with each calculation and applied
+ * immediately before it, synchronously — see frame.ts.
  */
 export const AYANAMSA_IDX = {
   lahiri: 1,
@@ -98,7 +115,54 @@ export const AYANAMSA_IDX = {
   jn_bhasin: 8,
 } as const;
 
-export function setAyanamsa(name: keyof typeof AYANAMSA_IDX): void {
+export type EphemerisSource = 'jpl' | 'swiss' | 'moshier';
+
+/**
+ * Which ephemeris a calculation ACTUALLY used, read from the flag sweph
+ * returns. Swiss Ephemeris silently falls back to the Moshier analytical
+ * ephemeris when a .se1 file is missing (the return flag then carries
+ * SEFLG_MOSEPH instead of the SEFLG_SWIEPH that was requested), so the request
+ * flag says nothing about the answer.
+ */
+export function ephemerisSourceOf(returnedFlag: number): EphemerisSource | null {
+  if (typeof returnedFlag !== 'number' || returnedFlag < 0) return null;
+  if (returnedFlag & FLAG_JPLEPH) return 'jpl';
+  if (returnedFlag & FLAG_GEO) return 'swiss';
+  if (returnedFlag & FLAG_MOSEPH) return 'moshier';
+  return null;
+}
+
+/*
+ * Source recording for one synchronous RPC. `dispatch` (rpc.ts) opens a
+ * recorder, runs the handler synchronously, and closes it — no other request
+ * can run in between on this single-threaded process, so the sources belong
+ * to that request alone.
+ */
+let sourceRecorder: Set<EphemerisSource> | null = null;
+
+export function recordEphemerisSource(returnedFlag: number): void {
+  const s = ephemerisSourceOf(returnedFlag);
+  if (s && sourceRecorder) sourceRecorder.add(s);
+}
+
+export function withSourceRecording<T>(fn: () => T): { result: T; sources: EphemerisSource[] } {
+  const previous = sourceRecorder;
+  const sources = new Set<EphemerisSource>();
+  sourceRecorder = sources;
+  try {
+    const result = fn();
+    return { result, sources: [...sources].sort() };
+  } finally {
+    sourceRecorder = previous;
+  }
+}
+
+/** The linked Swiss Ephemeris library version, e.g. "2.10.03". */
+export function swephLibraryVersion(): string {
   const sw = getSweph();
-  sw.set_sid_mode(AYANAMSA_IDX[name], 0, 0);
+  try {
+    return typeof sw.version === 'function' ? String(sw.version()) : 'unknown';
+  } catch {
+    return 'unknown';
+  }
 }

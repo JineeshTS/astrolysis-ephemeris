@@ -7,7 +7,7 @@
   "private": false,
   "dependencies": {
     "@astrolysis/ephemeris-core": "workspace:*",
-    "fastify": "^4.28.0"
+    "fastify": "^5.12.5"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",

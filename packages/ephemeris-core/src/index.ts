@@ -17,6 +17,9 @@
  */
 export * from './types';
 export * from './sweph';
+export * from './frame';
 export * from './bodies';
 export * from './houses';
+export * from './sky';
 export * from './ephemeris-events';
+export * from './rpc';
