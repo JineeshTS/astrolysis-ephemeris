@@ -36,6 +36,7 @@ import { computeBodiesReport } from './bodies';
 import { computeHouses } from './houses';
 import { solarLongitudeCrossing, sunApparentLongitude } from './ephemeris-events';
 import { globalEclipses, sunriseSunset, OBSERVATIONAL_EVENTS_VERSION, ObservationArgumentError } from './observational-events';
+import {localEclipses,LOCAL_ECLIPSE_VERSION} from './local-eclipses';
 
 export const RPC_PROTOCOL = 2;
 
@@ -140,12 +141,13 @@ interface HandlerOut {
   missing?: Array<{ body: string; reason: string }>;
 }
 
-function observation(a: Record<string, unknown>, run: () => unknown): HandlerOut {
-  if (a.methodVersion !== OBSERVATIONAL_EVENTS_VERSION || a.frame !== undefined) throw new RpcArgumentError('Unsupported observational method version or frame');
+function observation(a: Record<string, unknown>, run: () => unknown, methodVersion: string = OBSERVATIONAL_EVENTS_VERSION): HandlerOut {
+  if (a.methodVersion !== methodVersion || a.frame !== undefined) throw new RpcArgumentError('Unsupported observational method version or frame');
   try { return { data: run(), frame: TROPICAL, jdForAyanamsa: null }; }
   catch (err) { if (err instanceof ObservationArgumentError) throw new RpcArgumentError(err.message); throw err; }
 }
 const HANDLERS: Record<string, (args: Record<string, unknown>) => HandlerOut> = {
+  localEclipses: (a) => observation(a, () => localEclipses(num(a.startJdUt,'startJdUt',JD_MIN,JD_MAX),num(a.endJdUt,'endJdUt',JD_MIN,JD_MAX),num(a.lat,'lat',-90,90),num(a.lng,'lng',-180,180)),LOCAL_ECLIPSE_VERSION),
   globalEclipses: (a) => observation(a, () => globalEclipses(num(a.startJdUt, 'startJdUt', JD_MIN, JD_MAX), num(a.endJdUt, 'endJdUt', JD_MIN, JD_MAX))),
   sunriseSunset: (a) => observation(a, () => sunriseSunset(num(a.startJdUt, 'startJdUt', JD_MIN, JD_MAX), num(a.endJdUt, 'endJdUt', JD_MIN, JD_MAX), num(a.lat, 'lat', -90, 90), num(a.lng, 'lng', -180, 180))),
   computeSky: (a) => {
@@ -267,6 +269,7 @@ export function dispatch(fn: unknown, args: unknown): RpcResult {
       ayanamsaDeg: result.ayanamsaDeg,
       missing: result.out.missing ?? [],
       ...(["globalEclipses", "sunriseSunset"].includes(fn) ? { methodVersion: OBSERVATIONAL_EVENTS_VERSION } : {}),
+      ...(fn === "localEclipses" ? {methodVersion: LOCAL_ECLIPSE_VERSION} : {}),
     },
   };
 }
@@ -284,6 +287,7 @@ export function engineIdentity(): {
   ephemeris: EphemerisSource | 'unknown';
   ayanamsas: string[];
   observationalEventsVersion: string;
+  localEclipseVersion: string;
 } {
   const res = getSweph().calc_ut(2451545.0, BODY_INDEX.sun!, FLAG_GEO | FLAG_SPEED);
   return {
@@ -293,5 +297,6 @@ export function engineIdentity(): {
     ephemeris: ephemerisSourceOf(res?.flag) ?? 'unknown',
     ayanamsas: [...SUPPORTED_AYANAMSAS],
     observationalEventsVersion: OBSERVATIONAL_EVENTS_VERSION,
+    localEclipseVersion: LOCAL_ECLIPSE_VERSION,
   };
 }

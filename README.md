@@ -60,6 +60,15 @@ The service also exposes `globalEclipses` and `sunriseSunset` through `POST /cal
 - Sunrise and sunset use the upper solar limb, a sea-level geometric horizon and standard 1013.25 hPa / 15 C refraction. Coordinates are explicit inputs. Terrain, elevation and actual weather are not modelled. A bounded interval may contain no crossing or two crossings of one type when a selected timezone day spans another longitude.
 - Sun/Moon Swiss ephemeris probes validate source availability separately from native event classification/status flags. Invalid ranges or failed calculations return errors rather than invented events.
 
+## Location-specific eclipse events
+
+`localEclipses` is a separate extension identified as `local-eclipses/1` by health and method metadata. It accepts a half-open interval of at most 32 days within 1900–2100 and explicit latitude/longitude at sea level. It does not change the positional engine or RPC protocol identity.
+
+- `visiblePeakJdUt` is the peak of the locally visible span. When the nominal maximum is below the modelled horizon, Swiss Ephemeris may instead return a rise/set boundary and classify only the visible portion. `peakKind` distinguishes `maximum`, `rise_boundary` and `set_boundary`; `unclippedMaximumVisible` must not be inferred from the returned time alone.
+- Contacts and rise/set times use the native Swiss horizon/refraction model. Solar horizon crossings are reconstructed with the same lower-limb convention because the binding can leave its optional solar horizon slots uninitialized. Lunar contacts outside the visible span can be omitted by the native library. An omitted contact is not an invented instant.
+- `JdUt` is the engine's UT estimate, not a subsecond UTC guarantee. Terrain, elevation, clouds and actual weather are not modelled. These results do not establish safe viewing conditions. The global eclipse methods remain separate and make no local-visibility claim.
+- Tests include fixed published comparisons and local/native failure cases. Their tolerances and observer assumptions are explicit in the test source; they are not a universal accuracy certificate. Before running native tests, acquire the pinned data into a directory and set `SWEPH_PATH` to that directory as described above.
+
 ## Corresponding Source offer
 
 `GET /source` reports this repository (`EPHEMERIS_SOURCE_URL`) and the exact commit a deployment runs (`EPHEMERIS_SOURCE_COMMIT`). The commit is configured when a deployment is made, after this source is published. It is never written into the source itself.
