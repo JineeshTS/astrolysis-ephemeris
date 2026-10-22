@@ -10,7 +10,7 @@
  * Exact published Lìchūn instants are pinned separately once sourced — see
  * docs/fixes. Nothing here asserts a value I could not derive or verify.
  */
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   MONTH_TERMS,
   gregorianToJd,
@@ -20,15 +20,10 @@ import {
 } from './ephemeris-events';
 import { ensureSweph } from './sweph';
 
-let swephReady = false;
-beforeAll(async () => {
-  try {
-    await ensureSweph();
-    swephReady = true;
-  } catch {
-    swephReady = false;
-  }
-});
+const swephReady = await ensureSweph().then(() => true, () => false);
+if (!swephReady && process.env.REQUIRE_NATIVE_EPHEMERIS === '1') {
+  throw new Error('REQUIRE_NATIVE_EPHEMERIS=1 but the native ephemeris is unavailable for this suite');
+}
 
 /** JD → UTC calendar parts, for readable assertions. Meeus ch. 7 inverse. */
 function jdToUtc(jd: number): { y: number; m: number; d: number; hour: number } {
@@ -50,8 +45,7 @@ function jdToUtc(jd: number): { y: number; m: number; d: number; hour: number } 
 }
 
 describe('sunApparentLongitude', () => {
-  it('returns a longitude in [0, 360)', () => {
-    if (!swephReady) return;
+  it.skipIf(!swephReady)('returns a longitude in [0, 360)', () => {
     for (let i = 0; i < 12; i++) {
       const lon = sunApparentLongitude(gregorianToJd(2020, 1, 1) + i * 30);
       expect(lon).toBeGreaterThanOrEqual(0);
@@ -59,8 +53,7 @@ describe('sunApparentLongitude', () => {
     }
   });
 
-  it('advances roughly 1 degree per day and never retrogrades', () => {
-    if (!swephReady) return;
+  it.skipIf(!swephReady)('advances roughly 1 degree per day and never retrogrades', () => {
     const start = gregorianToJd(2020, 1, 1);
     for (let i = 0; i < 360; i += 7) {
       const a = sunApparentLongitude(start + i);
@@ -75,8 +68,7 @@ describe('sunApparentLongitude', () => {
 describe('solarLongitudeCrossing — round trip', () => {
   // The strongest available check without an external table: solve for a
   // longitude, then ask the ephemeris what the longitude is at that instant.
-  it('lands on the requested longitude for every 15-degree term', () => {
-    if (!swephReady) return;
+  it.skipIf(!swephReady)('lands on the requested longitude for every 15-degree term', () => {
     const seed = gregorianToJd(2024, 1, 1);
     for (let target = 0; target < 360; target += 15) {
       const jd = solarLongitudeCrossing(target, seed);
@@ -86,8 +78,7 @@ describe('solarLongitudeCrossing — round trip', () => {
     }
   });
 
-  it('handles the 360 to 0 wrap', () => {
-    if (!swephReady) return;
+  it.skipIf(!swephReady)('handles the 360 to 0 wrap', () => {
     // 0 degrees is the March equinox — the case a naive solver breaks on,
     // because the raw longitude falls from 359.9 to 0.1 with no sign change.
     const jd = solarLongitudeCrossing(0, gregorianToJd(2024, 1, 1));
@@ -98,8 +89,7 @@ describe('solarLongitudeCrossing — round trip', () => {
     expect(utc.d).toBeLessThanOrEqual(21);
   });
 
-  it('is stable regardless of where the search is seeded', () => {
-    if (!swephReady) return;
+  it.skipIf(!swephReady)('is stable regardless of where the search is seeded', () => {
     const a = solarLongitudeCrossing(315, gregorianToJd(2024, 2, 4));
     const b = solarLongitudeCrossing(315, gregorianToJd(2024, 1, 20));
     const c = solarLongitudeCrossing(315, gregorianToJd(2024, 2, 20));
@@ -111,13 +101,12 @@ describe('solarLongitudeCrossing — round trip', () => {
 describe('solarLongitudeCrossing — cardinal points', () => {
   // Equinoxes and solstices are the four crossings whose approximate dates are
   // not in dispute, so they bound the solver without pinning a precise instant.
-  it.each([
+  it.skipIf(!swephReady).each([
     [0, 3, 19, 21],     // March equinox
     [90, 6, 20, 22],    // June solstice
     [180, 9, 21, 24],   // September equinox
     [270, 12, 20, 23],  // December solstice
   ])('longitude %i falls in month %i between day %i and %i', (lon, month, dMin, dMax) => {
-    if (!swephReady) return;
     const jd = solarLongitudeCrossing(lon as number, gregorianToJd(2024, 1, 1));
     const utc = jdToUtc(jd);
     expect(utc.m).toBe(month);
@@ -144,8 +133,7 @@ describe('MONTH_TERMS', () => {
     }
   });
 
-  it('the twelve terms occur in calendar order within a solar year', () => {
-    if (!swephReady) return;
+  it.skipIf(!swephReady)('the twelve terms occur in calendar order within a solar year', () => {
     const seed = gregorianToJd(2024, 2, 4);
     let prev = solarLongitudeCrossing(MONTH_TERMS[0]!.longitude, seed);
     for (let i = 1; i < MONTH_TERMS.length; i++) {
@@ -161,8 +149,7 @@ describe('MONTH_TERMS', () => {
 });
 
 describe('lichunJd', () => {
-  it('always falls on 3, 4 or 5 February', () => {
-    if (!swephReady) return;
+  it.skipIf(!swephReady)('always falls on 3, 4 or 5 February', () => {
     // This is the whole point of A10: bazi.ts hard-codes 4 February, and the
     // term genuinely moves across three dates.
     const days = new Set<number>();
@@ -178,8 +165,7 @@ describe('lichunJd', () => {
     expect(days.size).toBeGreaterThan(1);
   });
 
-  it('advances by about a tropical year each year', () => {
-    if (!swephReady) return;
+  it.skipIf(!swephReady)('advances by about a tropical year each year', () => {
     for (let year = 2000; year < 2010; year++) {
       const gap = lichunJd(year + 1) - lichunJd(year);
       expect(gap).toBeGreaterThan(365.0);

@@ -52,6 +52,14 @@ SWEPH_PATH=/path/to/ephe EPHEMERIS_PORT=4100 pnpm start
 - It listens on 127.0.0.1 only; `EPHEMERIS_HOST` defaults to 127.0.0.1.
 - `GET /health` reports the engine identity: for this source, engine version `sweph-2.10.03+astrolysis-3` and RPC protocol `2`, plus the linked Swiss Ephemeris version and which ephemeris actually answers.
 
+## Observational event methods
+
+The service also exposes `globalEclipses` and `sunriseSunset` through `POST /call`. Health and method responses identify these extensions as `observational-events/1`; the positional engine and RPC protocol identities above are unchanged.
+
+- Eclipse results give global maximum instants and eclipse types in a half-open interval of at most 32 days. They do not establish visibility at a particular location.
+- Sunrise and sunset use the upper solar limb, a sea-level geometric horizon and standard 1013.25 hPa / 15 C refraction. Coordinates are explicit inputs. Terrain, elevation and actual weather are not modelled. A bounded interval may contain no crossing or two crossings of one type when a selected timezone day spans another longitude.
+- Sun/Moon Swiss ephemeris probes validate source availability separately from native event classification/status flags. Invalid ranges or failed calculations return errors rather than invented events.
+
 ## Corresponding Source offer
 
 `GET /source` reports this repository (`EPHEMERIS_SOURCE_URL`) and the exact commit a deployment runs (`EPHEMERIS_SOURCE_COMMIT`). The commit is configured when a deployment is made, after this source is published. It is never written into the source itself.

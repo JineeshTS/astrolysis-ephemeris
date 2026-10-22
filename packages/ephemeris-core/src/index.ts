@@ -23,3 +23,4 @@ export * from './houses';
 export * from './sky';
 export * from './ephemeris-events';
 export * from './rpc';
+export * from './observational-events';
